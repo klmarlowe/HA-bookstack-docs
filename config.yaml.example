@@ -1,0 +1,204 @@
+# Configuration for HA to BookStack Documentation Generator
+# Copy this file to config.yaml and fill in your details.
+# DO NOT commit config.yaml to version control — it contains API tokens.
+# Recommended: chmod 600 config.yaml
+
+# ============================================================================
+# BOOKSTACK CONNECTION
+# ============================================================================
+bookstack:
+  url: "http://YOUR_BOOKSTACK_IP:PORT/"
+  token_id: "YOUR_BOOKSTACK_TOKEN_ID"
+  token_secret: "YOUR_BOOKSTACK_TOKEN_SECRET"
+
+  # Book name — will be auto-created if it doesn't exist
+  book_name: "Home Assistant Documentation"
+
+  # Book ID (optional) — if not specified, script searches by name or creates a new book
+  book_id: null
+
+  # Optional: Chapter IDs for page organization (leave null to place all pages at book level)
+  chapters:
+    overview: null
+    inventory: null
+    integrations: null
+    automations: null
+    zigbee: null
+    network: null
+    reference: null
+
+# ============================================================================
+# HOME ASSISTANT CONNECTION
+# ============================================================================
+homeassistant:
+  url: "http://homeassistant.local:8123"
+  token: "YOUR_HA_LONG_LIVED_ACCESS_TOKEN"
+
+# ============================================================================
+# DOCUMENTATION OPTIONS
+# ============================================================================
+documentation:
+  # Include HTML styling in markdown output
+  # Requires BookStack custom CSS — see README for installation instructions.
+  # Use --no-style flag or set false here for plain markdown output.
+  styled_output: true
+
+  # Which sections to generate (set false to skip any section)
+  sections:
+    quick_reference: true
+    system_overview: true
+    entity_inventory: true
+    integration_quirks: true
+    automation_summary: true
+    zigbee_network: true
+    network_info: true
+
+  # Entity inventory options
+  inventory:
+    group_by_area: true
+    include_unavailable: true
+    max_entities_per_section: 100
+
+# ============================================================================
+# SYSTEM-SPECIFIC INFORMATION
+# ============================================================================
+system_info:
+  location_name: "Home"
+  timezone: "America/New_York"   # Your timezone (IANA format)
+
+  coordinators:
+    zigbee:
+      type: "Zigbee2MQTT"        # or "ZHA"
+      hardware: "Your coordinator hardware description"
+      location: "Where it's physically installed"
+      notes: "Any relevant notes about placement, coverage, or history"
+
+    zwave:
+      enabled: false             # Set true if you have Z-Wave
+      type: "Z-Wave JS"
+      hardware: "Your Z-Wave hardware"
+      notes: "What devices it controls"
+
+  network:
+    router_brand: "Your router brand"
+    router_model: "Your router model"
+    subnet: "192.168.1.0/24"    # Your local subnet
+    lan_ip: "192.168.1.1"
+    ha_ip: "192.168.1.x"
+
+    # DNS architecture (optional — documents your DNS setup)
+    dns:
+      primary:
+        host: "hostname or description"
+        ip: "192.168.1.x"
+        software: "AdGuard Home"  # or Pi-hole, etc.
+        notes: "Notes about this DNS server"
+      secondary:
+        host: "hostname or description"
+        ip: "192.168.1.x"
+        software: "AdGuard Home (HA add-on)"
+        notes: "Fallback DNS"
+
+  # Optional: document Proxmox or other hosting details
+  proxmox:
+    host_ip: "192.168.1.x"
+    ram_total: "16GB"
+    ram_allocated_to_ha: "12GB"
+    notes: "HA runs as a VM"
+
+  household_members:
+    - name: "Primary User"
+      role: "Administrator"
+      devices: "iPhone"
+    - name: "Another User"
+      devices: "iPhone"
+    # Add more members as needed
+
+# ============================================================================
+# INTEGRATION-SPECIFIC QUIRKS & SOLUTIONS
+# Document known issues and workarounds for your integrations.
+# These populate the "Integration Quirks & Solutions" page in BookStack.
+# Severity levels: low, medium, high, critical
+# ============================================================================
+quirks:
+  - integration: "Bond"
+    severity: "medium"
+    title: "RF devices lose state tracking when physical remotes are used"
+    description: |
+      Bond uses one-way RF communication. HA sends commands but cannot detect
+      physical remote button presses, causing state drift over time.
+    affected_devices:
+      - "Living Room Fan (fan.living_room)"
+      - "Bedroom Fan (fan.bedroom)"
+    workaround: |
+      Create a daily automation (e.g. 4 AM) to reset all Bond device states.
+      Long-term fix: install inline switches (e.g. Sonoff ZBMINIR2 in detached
+      relay mode) to route physical presses through HA, maintaining state accuracy.
+    notes: "Inline switch solution prevents drift entirely once deployed"
+
+  # Add more quirks as you discover them:
+  # - integration: "Ring"
+  #   severity: "low"
+  #   title: "Cloud-dependent operation"
+  #   description: |
+  #     Ring devices require an internet connection to function.
+  #   notes: "Consider local camera alternatives for resilience"
+
+# ============================================================================
+# CUSTOM SECTIONS
+# Inject your own markdown into the generated documentation.
+# ============================================================================
+custom_sections:
+  integration_quirks_footer: |
+    ## General Troubleshooting Steps
+
+    1. **Reload the integration**: Settings → Integrations → [Integration] → ⋮ → Reload
+    2. **Check logs**: Settings → System → Logs (filter by integration name)
+    3. **Restart HA**: Last resort but resolves many transient issues
+    4. **Re-authenticate**: Cloud integrations often need periodic re-auth
+
+    ### Cloud vs. Local Integrations
+
+    **Cloud integrations**: Require internet, subject to vendor API changes (Ring, Nest, etc.)
+    **Local integrations**: Work without internet, generally more reliable (Zigbee, Z-Wave, ESPHome)
+
+  system_overview_notes: |
+    ### Key Household Members
+
+    - Person 1 (Primary Administrator)
+    - Person 2
+
+    ### System Philosophy
+
+    1. **Local Control Priority**: Where possible, devices communicate locally
+    2. **Reliability Over Features**: Simple automations that work > complex ones that break
+    3. **Physical Switches Work**: All automations preserve physical switch functionality
+    4. **Graceful Degradation**: If HA goes down, the house still functions manually
+
+# ============================================================================
+# EXCLUSIONS
+# Entities matching these patterns will be excluded from the Entity Inventory.
+# Uses Python regex matched against entity_id.
+# ============================================================================
+exclusions:
+  # Regex patterns matched against entity_id
+  patterns:
+    - "sensor.*_next_alarm$"
+    - "sensor.*_next_timer$"
+    - "sensor.*_next_reminder$"
+    - "sensor.*_rssi$"
+    - "sensor.*_notification_power_management_.*"
+    - "sensor.*_floors_ascended$"
+    - "sensor.*_floors_descended$"
+    - "sensor.*_average_active_pace$"
+    - "sensor.*_steps$"
+    - "sensor.*_scene_state_.*"
+
+  # Entire domains to exclude (e.g. ["tts", "stt", "wake_word"])
+  domains: []
+
+  # Specific entity IDs to exclude
+  entities: []
+
+  # Areas to exclude
+  areas: []
