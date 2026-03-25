@@ -217,7 +217,7 @@ class HADocumentationGenerator:
             return True
         
         # Check pattern exclusions
-        for pattern in self.exclusions.get('entity_patterns', []):
+        for pattern in self.exclusions.get('patterns', self.exclusions.get('entity_patterns', [])):
             try:
                 if re.match(pattern, entity_id):
                     return True
@@ -463,155 +463,388 @@ class HADocumentationGenerator:
         return sorted(list(integrations))
     
     def generate_system_overview(self) -> str:
-        """Generate system overview from live data"""
+        """
+        Page 1: System Overview — narrative orientation for any reader.
+        What is this system, who uses it, what does it do, and what are
+        the guiding principles behind how it was built?
+        """
         entity_counts = self._count_entities_by_domain()
         total_entities = sum(entity_counts.values())
-        integrations = self._get_integrations()
-        
-        doc = ""
+        version = self.config_data.get('version', 'Unknown')
+        location = self.system_info.get('location_name',
+                   self.config_data.get('location_name', 'Home'))
+        tz = self.config_data.get('time_zone',
+             self.system_info.get('timezone', 'Unknown'))
 
-        # Status summary as a simple markdown table (avoids CSS callout rendering issues)
-        doc += f"""| | |
-|---|---|
-| **System Status** | ✅ Running |
-| **Version** | {self.config_data.get('version', 'Unknown')} |
-| **Total Entities** | {total_entities:,} |
-| **Last Updated** | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |
+        members = self.system_info.get('household_members', [])
+
+        doc = f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+
+        # --- What this system is ---
+        doc += f"""## What Is This System?
+
+This is a Home Assistant smart home installation for {location}. It monitors and
+controls lighting, climate, security, appliances, and presence for the household.
+The system runs 24/7 on a local server and integrates with both local devices
+(Zigbee sensors, Z-Wave locks, RF-controlled fans) and cloud services (thermostats,
+security cameras, and appliances).
+
+The guiding principles:
+
+- **Local control first.** Where possible, devices communicate directly with the
+  server without depending on the internet. If the internet goes down, most things
+  still work.
+- **Physical controls always work.** Smart automation layers on top of manual
+  switches and remotes — it never replaces them.
+- **Reliability over features.** A simple automation that works every time is
+  worth more than a complex one that occasionally fails.
+- **Graceful degradation.** If the server is down, every device falls back to
+  manual control. Cloud devices (thermostats, cameras) fall back to their
+  manufacturer apps.
+
+## Household Members
 
 """
-        
-        doc += f"""*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
+        if members:
+            for m in members:
+                role = f" — {m['role']}" if 'role' in m else ''
+                notes = f" ({m['notes']})" if 'notes' in m else ''
+                doc += f"- **{m['name']}**{role}{notes}\n"
+        else:
+            doc += "- *(Configure household_members in config.yaml)*\n"
 
-## Home Assistant Installation
+        doc += f"""
+## System at a Glance
 
-- **Version**: {self.config_data.get('version', 'Unknown')}
-- **Location**: {self.system_info.get('location_name', self.config_data.get('location_name', 'Unknown'))}
-- **Installation Type**: Home Assistant OS
-- **URL**: {self.config_data.get('internal_url', 'Unknown')}
-- **Timezone**: {self.config_data.get('time_zone', 'Unknown')}
+| | |
+|---|---|
+| **HA Version** | {version} |
+| **Total Entities** | {total_entities:,} |
+| **Timezone** | {tz} |
+| **Last Updated** | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |
 
-## System Statistics
-
-- **Total Entities**: {total_entities:,}
-- **Active Integrations**: {len(integrations)}
-- **Latitude**: {self.config_data.get('latitude', 'Unknown')}
-- **Longitude**: {self.config_data.get('longitude', 'Unknown')}
-- **Elevation**: {self.config_data.get('elevation', 'Unknown')}m
-- **Unit System**: {self.config_data.get('unit_system', {}).get('temperature', 'Unknown')}
-
-
-## Entity Breakdown by Domain
+### Entity Breakdown
 
 | Domain | Count |
 |--------|-------|
 """
-        # Sort by count descending
-        for domain, count in sorted(entity_counts.items(), key=lambda x: x[1], reverse=True)[:15]:
-            domain_label = f"{self.style.badge(domain)} {domain}" if self.styled else domain
-            doc += f"| {domain_label} | {count} |\n"
-        
-        doc += f"""
-## Key Household Members
+        for domain, count in sorted(entity_counts.items(),
+                                    key=lambda x: x[1], reverse=True)[:15]:
+            doc += f"| `{domain}` | {count} |\n"
 
-- Kevin (Primary Administrator)
-- Jill
-- Ryan
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         Home Assistant OS               │
-│         (Proxmox VM)                    │
-├─────────────────────────────────────────┤
-│  ┌─────────┐ ┌──────────┐ ┌─────────┐ │
-│  │  ZHA    │ │  MQTT    │ │ Cloud   │ │
-│  │ Zigbee  │ │  Broker  │ │Services │ │
-│  └────┬────┘ └────┬─────┘ └────┬────┘ │
-└───────┼───────────┼────────────┼──────┘
-        │           │            │
-    ┌───▼───┐   ┌───▼────┐   ┌──▼─────┐
-    │Zigbee │   │Tasmota │   │Ecobee  │
-    │Devices│   │ WiFi   │   │ Ring   │
-    │       │   │Devices │   │LG etc  │
-    └───────┘   └────────┘   └────────┘
-```
-
-## Active Integrations
-
-Total: {len(integrations)}
-
-"""
-        # List integrations in columns
-        cols = 3
-        for i in range(0, len(integrations), cols):
-            row_integrations = integrations[i:i+cols]
-            doc += "| " + " | ".join(row_integrations) + " |\n"
-        
         doc += """
-## System Health
+## What Happens If Home Assistant Goes Down?
 
-| Component | Status |
-|-----------|--------|
-| Home Assistant Core | ✅ Running |
-| Total Entities | """ + str(total_entities) + """ |
-| Configuration Valid | ✅ Yes |
+This comes up. Here is what to expect:
 
-## Important Notes
+- All physical switches and remotes still work normally.
+- Zigbee and Z-Wave devices respond to direct physical control.
+- Ecobee thermostats continue to operate on their own schedule.
+- Ring and SimpliSafe security systems continue independently via their apps.
+- Smart automations (scheduled events, motion responses, presence detection) stop
+  until HA restarts.
+- Voice commands through Alexa will fail for locally-controlled devices; cloud
+  devices still respond.
 
-### For Future Administrators
-
-This system is designed with "Wife Acceptance Factor" (WAF) in mind - everything should work intuitively, especially voice commands via Alexa.
-
-### System Philosophy
-
-1. **Local Control Priority**: Where possible, devices communicate locally
-2. **Voice-First Interface**: Alexa integration is primary control method for non-technical users
-3. **Reliability Over Features**: Simple automations that work > complex ones that break
-4. **Physical Switches Work**: All automations preserve physical switch functionality
-5. **Graceful Degradation**: If HA goes down, house still functions manually
-
-### Network Architecture
-
-- **Router**: TP-Link Deco mesh system
-- **DHCP Reservations**: Critical devices have static assignments
-- **Zigbee Coordinator**: ZBT-2 (Texas Instruments CC2652) in Office
-- **Z-Wave**: Nabu Casa Connect USB stick
-
-### Critical Information for Troubleshooting
-
-**If Home Assistant is Down**:
-1. All smart devices will still respond to physical controls
-2. Alexa voice commands will fail for local devices
-3. Cloud-based devices (Ring, Ecobee) continue to work via their apps
-4. Automations will not run
-
-**Common Issues**:
-- Bond RF devices may lose state if controlled via physical remote (4 AM sync runs daily)
-- Zigbee devices occasionally need coordinator reboot (power cycle USB stick)
-- Z-Wave devices may need network heal if behaving oddly
+See the Infrastructure & Architecture page for how to restart the server.
 """
-        
-        # Add custom overview notes if provided
+
         if 'system_overview_notes' in self.custom_sections:
             doc += "\n---\n\n"
             doc += self.custom_sections['system_overview_notes']
-        
+
+        return doc
+
+    def generate_infrastructure(self) -> str:
+        """
+        Page 2: Infrastructure & Architecture — the physical and logical stack.
+        Hardware, hosting, networking, DNS, and how everything depends on each other.
+        """
+        network = self.system_info.get('network', {})
+        proxmox = self.system_info.get('proxmox', {})
+        coordinators = self.system_info.get('coordinators', {})
+        dns = network.get('dns', {})
+
+        doc = f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+
+        doc += """## How the System Is Hosted
+
+Home Assistant runs as a virtual machine (VM) inside Proxmox, a bare-metal
+hypervisor. Proxmox lets the server run HA alongside other services while
+isolating them from each other. The physical server and the HA VM share the
+same IP address on the local network.
+
+"""
+        # Proxmox box
+        ha_ip = network.get('ha_ip', 'Unknown')
+        proxmox_ram_total = proxmox.get('ram_total', 'Unknown')
+        proxmox_ram_ha = proxmox.get('ram_allocated_to_ha', 'Unknown')
+        proxmox_notes = proxmox.get('notes', '')
+
+        doc += f"""### Server (Proxmox Host)
+
+| | |
+|---|---|
+| **IP Address** | `{ha_ip}` |
+| **Total RAM** | {proxmox_ram_total} |
+| **RAM Allocated to HA VM** | {proxmox_ram_ha} |
+| **HA URL** | `http://{ha_ip}:8123` |
+
+{proxmox_notes}
+
+"""
+
+        # Raspberry Pi / zbt-pi
+        rpi_ip = dns.get('primary', {}).get('ip', '')
+        rpi_host = dns.get('primary', {}).get('host', 'zbt-pi')
+        if rpi_ip:
+            doc += f"""### Raspberry Pi ({rpi_host})
+
+The Raspberry Pi at `{rpi_ip}` runs two always-on services independently
+of the main Proxmox server:
+
+- **Zigbee2MQTT** — manages all Zigbee devices via the ZBT-2 USB coordinator.
+  Because it runs on the Pi rather than inside HA, Zigbee devices remain
+  reachable even when HA is restarting.
+- **AdGuard Home** (primary DNS) — network-wide ad and tracker blocking.
+  Running on the Pi means DNS continues during HA reboots.
+
+"""
+
+        # Network
+        subnet = network.get('subnet', '')
+        router_brand = network.get('router_brand', '')
+        router_model = network.get('router_model', '')
+        lan_ip = network.get('lan_ip', '')
+
+        doc += "### Local Network\n\n"
+        doc += f"| | |\n|---|---|\n"
+        if subnet:
+            doc += f"| **Subnet** | `{subnet}` |\n"
+        if lan_ip:
+            doc += f"| **Router / Gateway** | `{lan_ip}` ({router_brand} {router_model}) |\n"
+        if rpi_ip:
+            doc += f"| **Raspberry Pi (zbt-pi)** | `{rpi_ip}` |\n"
+        if ha_ip:
+            doc += f"| **HA / Proxmox** | `{ha_ip}` |\n"
+        wan = network.get('wan', {})
+        if wan.get('fios_router_ip'):
+            doc += f"| **WAN / Fios Router** | `{wan['fios_router_ip']}` |\n"
+        doc += "\n"
+
+        # DNS
+        doc += """### DNS Architecture
+
+DNS determines how every device on the network resolves domain names. Three
+tiers are configured so that a reboot of any single component does not take
+down DNS for the whole house.
+
+"""
+        primary = dns.get('primary', {})
+        secondary = dns.get('secondary', {})
+        tertiary = dns.get('tertiary', {})
+        dhcp = dns.get('dhcp_dns_assignment', {})
+
+        doc += "| Priority | Host | IP | Software | Notes |\n"
+        doc += "|----------|------|----|----------|-------|\n"
+        if primary:
+            doc += f"| **1 — Primary** | {primary.get('host','?')} | `{primary.get('ip','?')}` | {primary.get('software','?')} | Always-on; survives HA reboots |\n"
+        if secondary:
+            doc += f"| **2 — Secondary** | {secondary.get('host','?')} | `{secondary.get('ip','?')}` | {secondary.get('software','?')} | Falls back if Pi is down |\n"
+        if tertiary:
+            doc += f"| **3 — Tertiary** | {tertiary.get('host','?')} | `{tertiary.get('ip','?')}` | Router built-in | No ad-blocking; last resort |\n"
+        doc += "\n"
+
+        if dhcp:
+            doc += f"DHCP hands out `{dhcp.get('dns1','?')}` as primary and "
+            doc += f"`{dhcp.get('dns2','?')}` as secondary to all clients.\n\n"
+
+        chain = dns.get('upstream_chain', '')
+        if chain:
+            doc += f"**Upstream chain:**\n```\n{chain.strip()}\n```\n\n"
+
+        # Zigbee / Z-Wave coordinators
+        doc += "## Wireless Coordinators\n\n"
+        doc += "| Protocol | Type | Hardware | Notes |\n"
+        doc += "|----------|------|----------|-------|\n"
+
+        zigbee = coordinators.get('zigbee', {})
+        if zigbee:
+            ztype = zigbee.get('type', 'Unknown')
+            zhw = zigbee.get('hardware', 'Unknown')
+            znotes = str(zigbee.get('notes', '')).split('\n')[0].strip()
+            doc += f"| Zigbee | {ztype} | {zhw} | {znotes} |\n"
+
+        zwave = coordinators.get('zwave', {})
+        if zwave and zwave.get('enabled'):
+            zwtype = zwave.get('type', 'Unknown')
+            zwhw = zwave.get('hardware', 'Unknown')
+            zwnotes = str(zwave.get('notes', '')).split('\n')[0].strip()
+            doc += f"| Z-Wave | {zwtype} | {zwhw} | {zwnotes} |\n"
+
+        doc += "\n"
+
+        # Restart / recovery
+        doc += """## Restarting the System
+
+**Restart Home Assistant only** (leaves Proxmox and Pi running):
+- UI: Settings → System → Restart
+- This is the most common action. Takes ~60 seconds.
+
+**Restart the Proxmox VM** (harder reset of HA, does not affect Pi):
+- Log into Proxmox at `http://""" + ha_ip + """:8006`
+- Find the HA VM and use Start/Stop/Reset.
+
+**Restart Zigbee2MQTT** (if Zigbee devices go offline):
+- SSH into the Pi: `ssh pi@""" + rpi_ip + """`
+- `sudo systemctl restart zigbee2mqtt`
+
+**Check if Z2M is healthy**: look for `sensor.zigbee2mqtt_bridge_version` in HA.
+If that entity is missing, Z2M's MQTT discovery pipeline has broken — restart Z2M.
+
+"""
+        return doc
+
+    def generate_software_integrations(self) -> str:
+        """
+        Page 3: Software & Integrations — what runs inside HA and what it controls.
+        Organized by category, not alphabetically. Purpose-first descriptions.
+        """
+        entity_counts = self._count_entities_by_domain()
+        coordinators = self.system_info.get('coordinators', {})
+        additional = self.user_config.get('additional_integrations', [])
+
+        doc = f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+
+        doc += """## How Integrations Work
+
+Home Assistant integrates with devices and services through *integrations* —
+software components that translate between HA's internal model and whatever
+protocol a device speaks. Some integrations are local (they talk directly to
+hardware on your network); others are cloud bridges (they relay through a
+manufacturer's servers).
+
+Local integrations respond in milliseconds and work without internet. Cloud
+integrations may add latency and break if the manufacturer's servers are down.
+This system favors local integrations wherever possible.
+
+## Local Protocol Integrations
+
+These integrations communicate directly with hardware on the local network.
+
+### Zigbee — Zigbee2MQTT
+
+"""
+        zigbee = coordinators.get('zigbee', {})
+        if zigbee:
+            doc += f"{zigbee.get('notes', '').strip()}\n\n"
+            doc += f"- **Coordinator**: {zigbee.get('hardware', 'Unknown')}\n"
+            doc += f"- **Software**: {zigbee.get('type', 'Zigbee2MQTT')}\n"
+            doc += f"- **Version entity**: `sensor.zigbee2mqtt_bridge_version` — "
+            doc += "if this entity is missing, restart Z2M on the Pi.\n\n"
+
+        zwave = coordinators.get('zwave', {})
+        doc += "### Z-Wave — Z-Wave JS\n\n"
+        if zwave and zwave.get('enabled'):
+            doc += f"{zwave.get('notes', '').strip()}\n\n"
+            doc += f"- **Hardware**: {zwave.get('hardware', 'Unknown')}\n\n"
+        else:
+            doc += "Z-Wave JS manages door locks and range extenders.\n\n"
+
+        doc += """### Bond — RF Fan/Light Control
+
+Bond bridges one-way RF remotes (ceiling fans and lights) into HA. Because RF
+is one-way, HA can send commands but cannot receive confirmation — physical
+remote use causes state drift. See Known Issues for the workaround.
+
+**Affected devices**: bedroom, office, bay room, balcony room, rec room,
+Ryan's room, and propeller fan/lights.
+
+### ESPHome
+
+Custom firmware for ESP32 microcontrollers. Current devices:
+
+"""
+        # Pull ESPHome devices from additional_integrations
+        esphome_entry = next((i for i in additional if i.get('name') == 'ESPHome Devices'), None)
+        if esphome_entry:
+            for d in esphome_entry.get('devices', []):
+                doc += f"- **{d['name']}**: {d.get('notes', '')}\n"
+        doc += "\n"
+
+        doc += "## Cloud-Bridged Integrations\n\n"
+        doc += "These integrations require internet to function.\n\n"
+
+        # Build a quick table from quirks + additional_integrations
+        cloud_integrations = [
+            ("Ecobee", "Thermostats (Downstairs + Upstairs). Local polling where available."),
+            ("Ring", "Cameras and alarm sensors. ~47s cloud latency for motion events."),
+            ("SimpliSafe (Yorktown)", "Security base station, door/motion sensors. Arming via SimpliSafe cloud."),
+            ("Blink", "Outdoor cameras. Arms when both Kevin and Jill are away."),
+            ("LG ThinQ", "Washer, dryer, refrigerator, dishwasher monitoring."),
+            ("Alexa Media Player", "Echo devices for announcements and voice control."),
+        ]
+
+        for name, desc in cloud_integrations:
+            doc += f"### {name}\n\n{desc}\n\n"
+
+        doc += "## Infrastructure Services\n\n"
+        doc += "These run as HA apps (add-ons) or on supporting hardware.\n\n"
+
+        infra = [
+            ("Mosquitto MQTT Broker", "Message bus for Zigbee2MQTT and other MQTT devices. Runs as HA app."),
+            ("AdGuard Home", "DNS-level ad and tracker blocking. Two instances: Pi (primary) and HA (secondary)."),
+            ("BookStack", "This documentation system. Runs as HA app."),
+            ("Uptime Kuma", "Monitoring for HA availability and AdGuard DNS. Runs on Pi, independent of HA."),
+        ]
+
+        for name, desc in infra:
+            doc += f"### {name}\n\n{desc}\n\n"
+
+        # Additional integrations from config that aren't covered above
+        doc += "## Other Integrations\n\n"
+        doc += "| Integration | Notes |\n"
+        doc += "|-------------|-------|\n"
+
+        skip = {'ESPHome Devices', 'AdGuard Home', 'TP-Link Deco'}
+        for entry in additional:
+            name = entry.get('name', '')
+            if name in skip:
+                continue
+            notes = entry.get('notes', '')
+            if not notes:
+                # Try pulling device names
+                devices = entry.get('devices', [])
+                if devices:
+                    if isinstance(devices[0], dict):
+                        notes = ', '.join(d.get('name', str(d)) for d in devices)
+                    else:
+                        notes = ', '.join(str(d) for d in devices)
+            doc += f"| {name} | {notes} |\n"
+
+        doc += "\n"
+
         return doc
     
     def generate_entity_inventory(self) -> str:
         """Generate comprehensive entity inventory"""
         entity_counts = self._count_entities_by_domain()
         
-        doc = f"""*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
+        total = sum(entity_counts.values())
+        doc = f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+        doc += f"""## Overview
 
-## Overview
+This inventory lists all {total:,} entities in Home Assistant, organized by domain.
+See the System Overview for guiding context, and Software & Integrations for what
+each integration does.
 
-This inventory lists all entities in Home Assistant, organized by domain and area.
-
-**Total Entities**: {sum(entity_counts.values())}
-
+| Domain | Count |
+|--------|-------|
 """
+        for domain, count in sorted(entity_counts.items(), key=lambda x: x[1], reverse=True):
+            doc += f"| `{domain}` | {count} |\n"
+        doc += "\n"
+
         
         # Group entities by domain
         by_domain = {}
@@ -655,12 +888,12 @@ This inventory lists all entities in Home Assistant, organized by domain and are
         return doc
     
     def generate_integration_quirks(self) -> str:
-        """Generate integration-specific quirks documentation"""
+        """Page 6: Known issues, workarounds, and lessons learned."""
         doc = f"""*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
 
-## Integration Quirks & Solutions
-
-This page documents known quirks, limitations, and workarounds for integrations used in this Home Assistant setup.
+This page captures known quirks, hard-won workarounds, and integration
+limitations for this Home Assistant setup. If something is behaving strangely,
+start here before digging into logs.
 
 """
         
@@ -869,51 +1102,6 @@ Re-run the documentation generator after updating your config to see your quirks
         else:
             parts.append('')
         
-        # Section 2: Common Entity Domains
-        parts.append('## Common Entity Domains\n')
-        
-        domain_counts = {}
-        for entity in self.states:
-            domain = entity['entity_id'].split('.')[0]
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
-        
-        # Sort by count
-        top_domains = sorted(domain_counts.items(), key=lambda x: x[1], reverse=True)[:10]
-        
-        if self.styled:
-            parts.append('<div class="reference-table">\n')
-        
-        parts.append('| Domain | Count | Common Uses |')
-        parts.append('|--------|-------|-------------|')
-        
-        domain_descriptions = {
-            'light': 'Lights and lighting controls',
-            'switch': 'On/off switches and smart plugs',
-            'sensor': 'Sensors (temperature, motion, battery, etc.)',
-            'binary_sensor': 'Binary sensors (on/off, open/closed)',
-            'automation': 'Automations',
-            'script': 'Scripts',
-            'climate': 'Thermostats and climate control',
-            'lock': 'Smart locks',
-            'camera': 'Cameras and video feeds',
-            'cover': 'Blinds, shades, garage doors',
-            'fan': 'Fans and ventilation',
-            'media_player': 'Media players (Alexa, TV, etc.)'
-        }
-        
-        for domain, count in top_domains:
-            desc = domain_descriptions.get(domain, f'{domain.replace("_", " ").title()} entities')
-            if self.styled:
-                badge = self.style.badge(domain)
-                parts.append(f'| {badge} | **{count}** | {desc} |')
-            else:
-                parts.append(f'| `{domain}` | {count} | {desc} |')
-        
-        if self.styled:
-            parts.append('\n</div>\n')
-        else:
-            parts.append('')
-        
         # Section 3: Critical Integrations
         parts.append('## Critical Integrations\n')
         
@@ -996,198 +1184,89 @@ Re-run the documentation generator after updating your config to see your quirks
         if self.styled:
             parts.append('</div>\n')
         
-        # Section 6: Emergency Contacts & Notes
-        parts.append('## Emergency Information\n')
-        
-        if self.styled:
-            parts.append('<div class="callout callout-warning">')
-        
-        parts.append('### Key Household Members')
-        custom_notes = self.custom_sections.get('system_overview_notes', '')
-        if 'Key Household Members' in custom_notes:
-            # Extract members from custom section
-            parts.append('- See System Overview for details\n')
-        else:
-            parts.append('- Update this section with household member information\n')
-        
-        parts.append('### Critical Services to Check')
-        parts.append('- Door locks (ensure all operational)')
-        parts.append('- Security cameras (verify recording)')
-        parts.append('- Climate control (thermostats responding)')
-        parts.append('- Network connectivity (router/mesh operational)\n')
-        
-        if self.styled:
-            parts.append('</div>\n')
-        
         # Footer
         parts.append(f'\n---\n*Last Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}*')
         
         return '\n'.join(parts)
     
     def generate_automation_documentation(self) -> str:
-        """Generate critical automation documentation"""
-        doc = f"""*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
-
-## Overview
-
-This page documents critical automations that keep the house running smoothly.
-
-"""
-        
-        # Get all automations
+        """
+        Page 5: Automations grouped by purpose, driven entirely by live data.
+        No hardcoded automation names.
+        """
         automations = [s for s in self.states if s['entity_id'].startswith('automation.')]
         enabled = [a for a in automations if a.get('state') == 'on']
         disabled = [a for a in automations if a.get('state') == 'off']
-        
-        # Status summary as markdown table
-        doc += f"""| | |
+
+        doc = f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+
+        doc += f"""## Overview
+
+Automations are the active logic layer of the system. They respond to triggers
+(time, sensor state, presence) and take actions (turn on lights, send a
+notification, lock a door). They require HA to be running.
+
+| | |
 |---|---|
-| **Active Automations** | {len(enabled)} enabled, {len(disabled)} disabled |
+| **Enabled** | {len(enabled)} |
+| **Disabled** | {len(disabled)} |
 | **Total** | {len(automations)} |
 
 """
-        
-        doc += """
-## Security & Safety
 
-### Lock Doors at 11 PM
+        GROUPS = [
+            ("Security & Locks",        ['lock', 'alarm', 'security', 'arm', 'disarm', 'camera', 'blink', 'ring', 'simplisafe']),
+            ("Water & Leak Alerts",     ['water', 'leak', 'flood']),
+            ("Presence & Arrivals",     ['home', 'away', 'arrive', 'leave', 'kevin', 'jill', 'ryan', 'presence', 'person']),
+            ("Lighting",                ['light', 'lamp', 'bulb', 'sunset', 'sunrise', 'motion']),
+            ("Climate & Comfort",       ['thermostat', 'ecobee', 'heat', 'cool', 'climate', 'temperature', 'fan', 'hvac']),
+            ("Bond State Sync",         ['bond', 'sync', 'rf']),
+            ("Notifications & Alerts",  ['notify', 'notification', 'alert', 'message', 'sms']),
+            ("Maintenance & Scheduled", ['4am', 'midnight', 'daily', 'schedule', 'maintenance', 'update', 'backup', 'restart']),
+            ("Voice & Media",           ['alexa', 'echo', 'voice', 'media', 'announce', 'tts', 'weather_forecast']),
+        ]
 
-**Entity**: `automation.lock_doors_at_11_pm`
-**Trigger**: Time (11:00 PM daily)
-**Action**: Lock both front and side doors
+        def get_group(entity_id, name):
+            combined = (entity_id + ' ' + name).lower()
+            for group_name, keywords in GROUPS:
+                if any(kw in combined for kw in keywords):
+                    return group_name
+            return "Other"
 
-**Purpose**: Ensure house is secured at night
+        grouped = {}
+        for auto in automations:
+            eid = auto['entity_id']
+            name = auto.get('attributes', {}).get('friendly_name', eid)
+            group = get_group(eid, name)
+            grouped.setdefault(group, []).append(auto)
 
-**Affected Devices**:
-- Front Door Lock
-- Side Door Lock
+        ordered_group_names = [g[0] for g in GROUPS] + ["Other"]
 
-### Water Leak Alert
+        for group_name in ordered_group_names:
+            autos = grouped.get(group_name)
+            if not autos:
+                continue
+            doc += f"## {group_name}\n\n"
+            doc += "| Automation | State | Last Triggered |\n"
+            doc += "|------------|-------|----------------|\n"
+            for auto in sorted(autos, key=lambda x: x.get('attributes', {}).get('friendly_name', x['entity_id'])):
+                name = auto.get('attributes', {}).get('friendly_name', auto['entity_id'])
+                state = auto.get('state', 'unknown')
+                last = auto.get('attributes', {}).get('last_triggered', 'Never')
+                if last and last != 'Never':
+                    try:
+                        last = datetime.fromisoformat(last.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
+                    except Exception:
+                        pass
+                icon = "✅" if state == "on" else "⏸️"
+                doc += f"| {icon} {name} | {state} | {last} |\n"
+            doc += "\n"
 
-**Entity**: `automation.water_leak_alert`
-**Triggers**: 
-"""
-        # Find water leak sensors
-        water_sensors = [s for s in self.states if 'water' in s['entity_id'].lower() and 'binary_sensor' in s['entity_id']]
-        
-        for sensor in water_sensors:
-            name = sensor.get('attributes', {}).get('friendly_name', sensor['entity_id'])
-            doc += f"- {name}\n"
-        
-        doc += """
-**Actions**:
-1. Send SMS notifications to all family members
-2. Sound sirens (garage camera, downstairs)
-3. Text-to-speech announcements
-4. Repeat alerts until leak is cleared
+        if grouped.get("Bond State Sync"):
+            doc += "> **Note**: Bond automations compensate for one-way RF state drift. "
+            doc += "See the Known Issues & Quirks page for full context.\n\n"
 
-**Mode**: Restart (cancels previous run if triggered again)
-
-## Comfort & Convenience
-
-### Bond Light State Sync (4 AM)
-
-**Entity**: `automation.bond_light_state_sync_4_am`
-**Trigger**: Time (4:00 AM daily)
-**Purpose**: Correct state drift from RF remote usage
-
-**Details**: See Integration Quirks documentation
-
-### Garage Light - Motion Activated
-
-**Entity**: `automation.garage_light_motion_activated`
-**Trigger**: Motion sensor in garage
-**Action**: 
-1. Turn on garage light
-2. Wait for motion to stop for 5 minutes
-3. Turn off light
-
-**Mode**: Restart (extends timer if motion detected again)
-
-## Presence & Welcome Home
-
-### When Kevin Gets Home
-
-**Entity**: `automation.when_kevin_gets_home`
-**Trigger**: Kevin's presence detection (person.kevin_marlowe enters 'home')
-**Actions**: [Document specific actions]
-
-### Jill Arrives Home
-
-**Entity**: `automation.jill_arrives_home`  
-**Trigger**: Jill's presence detection
-**Actions**: [Document specific actions]
-
-## Away Mode
-
-### Away Mode - Simulate Presence
-
-**Entity**: `automation.away_mode_simulate_presence`
-**Trigger**: When everyone leaves home
-**Actions**: Random light on/off to simulate occupancy
-
-**How to Enable/Disable**: [Document method]
-
-## Seasonal & Time-Based
-
-### Lights On at Sunset
-
-**Entity**: `automation.lights_on_at_6`
-**Trigger**: Time-based (varies by season)
-**Actions**: Turn on exterior and key interior lights
-
-## Voice Assistant
-
-### Update Weather Forecast for Echo Show
-
-**Entity**: `automation.update_weather_forecast_for_echo_show`
-**Purpose**: Keep Echo Show display current
-**Frequency**: [Document trigger]
-
-## Bedroom Fan Control
-
-### Bedroom Fan - Physical Switch Toggle
-
-**Entity**: `automation.bedroom_fan_physical_switch_toggle`
-**Purpose**: Map Sonoff switch to Bond fan control
-**Integration**: Sonoff ZBMINIR2 → Bond fan
-
-**How It Works**:
-1. Physical switch press detected by Sonoff
-2. Automation toggles Bond fan device
-3. State tracker updated
-4. Prevents state drift
-
-## Maintenance
-
-### All Active Automations
-"""
-        
-        doc += f"\n**Total**: {len(automations)}\n\n"
-        doc += "| Automation | State | Last Triggered |\n"
-        doc += "|------------|-------|----------------|\n"
-        
-        for auto in sorted(automations, key=lambda x: x['entity_id']):
-            name = auto.get('attributes', {}).get('friendly_name', auto['entity_id'])
-            state = auto.get('state', 'unknown')
-            last = auto.get('attributes', {}).get('last_triggered', 'Never')
-            if last and last != 'Never':
-                try:
-                    last = datetime.fromisoformat(last.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M')
-                except:
-                    pass
-            
-            # Add badge and status for styled output
-            if self.styled:
-                badge = self.style.badge('automation')
-                status = self.style.status(state)
-                doc += f"| {badge} {name} | {status} | {last} |\n"
-            else:
-                status_icon = "✅" if state == "on" else "⚠️"
-                doc += f"| {status_icon} {name} | {state} | {last} |\n"
-        
         return doc
-
 
 def _validate_config(config: Dict) -> None:
     """Validate configuration has required fields"""
@@ -1345,57 +1424,70 @@ def main():
     # Get enabled document sections
     doc_sections = config.get('documentation', {}).get('sections', {})
     
-    # Build documents list in the requested order:
-    # 1. Quick Reference Guide
-    # 2. System Overview
-    # 3. Entity Inventory
-    # 4. Integration Quirks & Solutions
-    # 5. Critical Automations
-    # 6. Notes (manual page - created separately, not here)
+    # Page order: narrative-first, reference-later
+    # 1. System Overview      — what, who, principles
+    # 2. Infrastructure       — hardware, network, DNS, coordinators, restart procedures
+    # 3. Software/Integrations— local vs cloud, what each integration does
+    # 4. Entity Inventory     — lookup table of all devices/entities
+    # 5. Automations          — grouped by purpose
+    # 6. Known Issues/Quirks  — weirdness, workarounds, lessons learned
+    # 7. Quick Reference      — URLs, commands (useful now that reader has context)
+    # Notes: manual page, created by ensure_book_exists(), never overwritten
     documents = []
-    
-    # 1. Quick Reference Guide
-    if doc_sections.get('quick_reference', True):
-        documents.append({
-            'name': 'Quick Reference Guide',
-            'content': doc_gen.generate_quick_reference(),
-            'chapter_id': config['bookstack'].get('chapters', {}).get('reference')
-        })
-    
-    # 2. System Overview
+
+    # 1. System Overview
     if doc_sections.get('system_overview', True):
         documents.append({
             'name': 'System Overview',
             'content': doc_gen.generate_system_overview(),
             'chapter_id': config['bookstack'].get('chapters', {}).get('overview')
         })
-    
-    # 3. Entity Inventory
+
+    # 2. Infrastructure & Architecture
+    documents.append({
+        'name': 'Infrastructure & Architecture',
+        'content': doc_gen.generate_infrastructure(),
+        'chapter_id': config['bookstack'].get('chapters', {}).get('network')
+    })
+
+    # 3. Software & Integrations
+    documents.append({
+        'name': 'Software & Integrations',
+        'content': doc_gen.generate_software_integrations(),
+        'chapter_id': config['bookstack'].get('chapters', {}).get('integrations')
+    })
+
+    # 4. Entity Inventory
     if doc_sections.get('entity_inventory', True):
         documents.append({
             'name': 'Entity Inventory',
             'content': doc_gen.generate_entity_inventory(),
             'chapter_id': config['bookstack'].get('chapters', {}).get('inventory')
         })
-    
-    # 4. Integration Quirks & Solutions
-    if doc_sections.get('integration_quirks', True):
-        documents.append({
-            'name': 'Integration Quirks & Solutions',
-            'content': doc_gen.generate_integration_quirks(),
-            'chapter_id': config['bookstack'].get('chapters', {}).get('integrations')
-        })
-    
-    # 5. Critical Automations
+
+    # 5. Automations
     if doc_sections.get('automation_summary', True):
         documents.append({
-            'name': 'Critical Automations',
+            'name': 'Automations',
             'content': doc_gen.generate_automation_documentation(),
             'chapter_id': config['bookstack'].get('chapters', {}).get('automations')
         })
-    
-    # Note: "Notes" page is created as a manual page by ensure_book_exists() function
-    # It won't be updated by this script to preserve user edits
+
+    # 6. Known Issues & Quirks
+    if doc_sections.get('integration_quirks', True):
+        documents.append({
+            'name': 'Known Issues & Quirks',
+            'content': doc_gen.generate_integration_quirks(),
+            'chapter_id': config['bookstack'].get('chapters', {}).get('integrations')
+        })
+
+    # 7. Quick Reference (last — reader now has context)
+    if doc_sections.get('quick_reference', True):
+        documents.append({
+            'name': 'Quick Reference Guide',
+            'content': doc_gen.generate_quick_reference(),
+            'chapter_id': config['bookstack'].get('chapters', {}).get('reference')
+        })
     
     if args.test:
         print("\n" + "=" * 60)
