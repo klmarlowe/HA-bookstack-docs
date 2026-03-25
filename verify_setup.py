@@ -1,206 +1,203 @@
 #!/usr/bin/env python3
 """
-Quick setup verification for HA Documentation Generator
-Run this to verify everything is configured correctly
+Setup verification for HA Documentation Generator.
+Run this before using ha_docs_production.py to confirm everything is in order.
+
+Usage:
+    python3 verify_setup.py --config config.yaml
 """
 
 import yaml
 import os
 import sys
+import argparse
 
-def check_config_file():
-    """Check if config file exists and is valid"""
-    config_path = "/config/scripts/ha_docs/config.yaml"
-    
+
+def check_files(config_path: str) -> bool:
+    """Check script and config file exist and are readable"""
+    ok = True
+
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ha_docs_production.py')
+    if os.path.exists(script_path):
+        print("  OK  Main script found")
+    else:
+        print("  --  Main script not found:", script_path)
+        ok = False
+
     if not os.path.exists(config_path):
-        print("âŒ Config file not found at:", config_path)
-        print("   Create it from config_production.yaml.example")
+        print("  --  Config file not found:", config_path)
+        print("      Copy config.yaml.example to config.yaml and fill in your details")
         return False
-    
+
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        
-        # Check required fields
-        required = [
-            ('bookstack', 'url'),
-            ('bookstack', 'token_id'),
-            ('bookstack', 'token_secret'),
-            ('bookstack', 'book_id'),
-            ('homeassistant', 'url'),
-            ('homeassistant', 'token')
-        ]
-        
-        missing = []
-        for section, key in required:
-            if section not in config or key not in config[section]:
-                missing.append(f"{section}.{key}")
-            elif not config[section][key] or 'your_' in str(config[section][key]):
-                missing.append(f"{section}.{key} (not configured)")
-        
-        if missing:
-            print("âŒ Config file incomplete. Missing:")
-            for item in missing:
-                print(f"   - {item}")
-            return False
-        
-        print("âœ… Config file looks good")
-        return True
-        
     except Exception as e:
-        print(f"âŒ Error reading config: {e}")
+        print("  --  Error reading config:", e)
         return False
 
-def check_dependencies():
-    """Check if required Python packages are installed"""
+    # Required fields (book_id intentionally excluded — null is valid)
+    required = [
+        ('bookstack', 'url'),
+        ('bookstack', 'token_id'),
+        ('bookstack', 'token_secret'),
+        ('homeassistant', 'url'),
+        ('homeassistant', 'token'),
+    ]
+
+    missing = []
+    for section, key in required:
+        val = config.get(section, {}).get(key)
+        if not val or str(val).startswith('YOUR_'):
+            missing.append(f"{section}.{key}")
+
+    if missing:
+        print("  --  Config file incomplete. Missing:")
+        for item in missing:
+            print(f"       - {item}")
+        ok = False
+    else:
+        print("  OK  Config file looks good")
+
+    if os.access(config_path, os.R_OK):
+        print("  OK  Script is readable")
+    else:
+        print("  --  Script is not readable")
+        ok = False
+
+    return ok
+
+
+def check_dependencies() -> bool:
+    """Check required Python packages"""
+    ok = True
     try:
-        import requests
-        print("âœ… requests library installed")
+        import requests  # noqa: F401
+        print("  OK  requests library installed")
     except ImportError:
-        print("âŒ requests library not installed")
-        print("   Run: pip install requests --break-system-packages")
-        return False
-    
+        print("  --  requests library not installed")
+        print("      Run: pip install requests --break-system-packages")
+        ok = False
+
     try:
-        import yaml
-        print("âœ… yaml library installed")
+        import yaml  # noqa: F401
+        print("  OK  yaml library installed")
     except ImportError:
-        print("âŒ yaml library not installed")
-        print("   Run: pip install pyyaml --break-system-packages")
-        return False
-    
-    return True
+        print("  --  yaml library not installed")
+        print("      Run: pip install pyyaml --break-system-packages")
+        ok = False
 
-def check_script_file():
-    """Check if main script exists"""
-    script_path = "/config/scripts/ha_docs/ha_docs_production.py"
-    
-    if not os.path.exists(script_path):
-        print(f"âŒ Main script not found at: {script_path}")
-        return False
-    
-    print("âœ… Main script found")
-    return True
+    return ok
 
-def check_permissions():
-    """Check if script is executable"""
-    script_path = "/config/scripts/ha_docs/ha_docs_production.py"
-    
-    if os.path.exists(script_path):
-        if os.access(script_path, os.R_OK):
-            print("âœ… Script is readable")
-        else:
-            print("âŒ Script is not readable")
-            return False
-    
-    return True
 
-def test_bookstack_connection():
+def test_bookstack(config_path: str) -> bool:
     """Test BookStack API connection"""
     try:
         import requests
-        config_path = "/config/scripts/ha_docs/config.yaml"
-        
+
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        
-        url = f"{config['bookstack']['url']}/api/books"
+
+        url = config['bookstack']['url'].rstrip('/') + '/api/books'
         headers = {
             'Authorization': f"Token {config['bookstack']['token_id']}:{config['bookstack']['token_secret']}"
         }
-        
+
         response = requests.get(url, headers=headers, timeout=5)
-        
+
         if response.status_code == 200:
             books = response.json().get('data', [])
-            print(f"âœ… BookStack connection successful ({len(books)} books found)")
-            
-            # Check if configured book exists
-            book_id = config['bookstack']['book_id']
-            book_exists = any(b['id'] == book_id for b in books)
-            
-            if book_exists:
-                print(f"âœ… Configured book (ID: {book_id}) exists")
+            print(f"  OK  BookStack connection successful ({len(books)} books found)")
+
+            book_id = config['bookstack'].get('book_id')
+            book_name = config['bookstack'].get('book_name', 'Home Assistant Documentation')
+
+            if book_id:
+                if any(b['id'] == book_id for b in books):
+                    print(f"  OK  Configured book (ID: {book_id}) exists")
+                else:
+                    print(f"  --  Configured book (ID: {book_id}) not found")
+                    print("      Available books:")
+                    for book in books:
+                        print(f"       - ID {book['id']}: {book['name']}")
             else:
-                print(f"âš ï¸  Configured book (ID: {book_id}) not found")
-                print("   Available books:")
-                for book in books:
-                    print(f"   - ID {book['id']}: {book['name']}")
-            
+                match = next((b for b in books if b['name'] == book_name), None)
+                if match:
+                    print(f"  OK  Book '{book_name}' found (ID: {match['id']})")
+                    print(f"      Tip: set book_id: {match['id']} in config.yaml to skip name lookup")
+                else:
+                    print(f"  OK  Book '{book_name}' not found — will be created on first run")
+
             return True
         else:
-            print(f"âŒ BookStack connection failed: HTTP {response.status_code}")
+            print(f"  --  BookStack connection failed: HTTP {response.status_code}")
             return False
-            
+
     except Exception as e:
-        print(f"âŒ BookStack connection error: {e}")
+        print(f"  --  BookStack connection error: {e}")
         return False
 
-def test_ha_connection():
+
+def test_ha(config_path: str) -> bool:
     """Test Home Assistant API connection"""
     try:
         import requests
-        config_path = "/config/scripts/ha_docs/config.yaml"
-        
+
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        
-        url = f"{config['homeassistant']['url']}/api/"
-        headers = {
-            'Authorization': f"Bearer {config['homeassistant']['token']}"
-        }
-        
+
+        url = config['homeassistant']['url'].rstrip('/') + '/api/'
+        headers = {'Authorization': f"Bearer {config['homeassistant']['token']}"}
+
         response = requests.get(url, headers=headers, timeout=5)
-        
+
         if response.status_code == 200:
             data = response.json()
-            print(f"âœ… Home Assistant connection successful")
-            print(f"   Message: {data.get('message', 'API running')}")
+            print(f"  OK  Home Assistant connection successful")
+            print(f"      Message: {data.get('message', 'API running.')}")
             return True
         else:
-            print(f"âŒ Home Assistant connection failed: HTTP {response.status_code}")
+            print(f"  --  Home Assistant connection failed: HTTP {response.status_code}")
             return False
-            
+
     except Exception as e:
-        print(f"âŒ Home Assistant connection error: {e}")
+        print(f"  --  Home Assistant connection error: {e}")
         return False
 
+
 def main():
+    parser = argparse.ArgumentParser(description='Verify HA Documentation Generator setup')
+    parser.add_argument('--config', default='config.yaml', help='Path to config YAML file')
+    args = parser.parse_args()
+
     print("=" * 60)
     print("HA Documentation Generator - Setup Verification")
     print("=" * 60)
-    print()
-    
-    checks = []
-    
-    print("ðŸ“ Checking file structure...")
-    checks.append(check_script_file())
-    checks.append(check_config_file())
-    checks.append(check_permissions())
-    print()
-    
-    print("ðŸ“¦ Checking dependencies...")
-    checks.append(check_dependencies())
-    print()
-    
-    print("ðŸ”Œ Testing connections...")
-    checks.append(test_bookstack_connection())
-    checks.append(test_ha_connection())
-    print()
-    
-    print("=" * 60)
-    if all(checks):
-        print("âœ… All checks passed! You're ready to run the generator.")
+
+    results = []
+
+    print("\nChecking file structure...")
+    results.append(check_files(args.config))
+
+    print("\nChecking dependencies...")
+    results.append(check_dependencies())
+
+    print("\nTesting connections...")
+    results.append(test_bookstack(args.config))
+    results.append(test_ha(args.config))
+
+    print("\n" + "=" * 60)
+    if all(results):
+        print("All checks passed. Ready to run the generator.")
         print()
         print("Next steps:")
-        print("1. Test: python3 /config/scripts/ha_docs/ha_docs_production.py --config /config/scripts/ha_docs/config.yaml --test")
-        print("2. Run: python3 /config/scripts/ha_docs/ha_docs_production.py --config /config/scripts/ha_docs/config.yaml")
-        print("3. Add shell_command to configuration.yaml")
-        print("4. Create automation for scheduled updates")
+        print(f"  Test:  python3 ha_docs_production.py --config {args.config} --test")
+        print(f"  Run:   python3 ha_docs_production.py --config {args.config}")
     else:
-        print("âŒ Some checks failed. Please fix the issues above.")
+        print("Some checks failed. Please fix the issues above.")
         sys.exit(1)
     print("=" * 60)
+
 
 if __name__ == '__main__':
     main()
