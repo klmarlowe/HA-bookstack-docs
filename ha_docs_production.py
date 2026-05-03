@@ -199,6 +199,22 @@ class HADocumentationGenerator:
         self.custom_sections = config.get('custom_sections', {})
         self.exclusions = config.get('exclusions', {})
     
+def _filter_excluded_entities(self):
+        """Apply exclusions config to self.states. Called once after states are loaded."""
+        if not hasattr(self, 'exclusions') or not self.exclusions:
+            return
+        original_count = len(self.states)
+        self.states = [
+            s for s in self.states
+            if not self._should_exclude_entity(
+                s['entity_id'],
+                s.get('attributes', {}).get('friendly_name', ''),
+                ''
+            )
+        ]
+        excluded = original_count - len(self.states)
+        if excluded > 0:
+            print(f"  🚫 Excluded {excluded} entities ({original_count} -> {len(self.states)})")
     def _should_exclude_entity(self, entity_id: str, friendly_name: str = "", area: str = "") -> bool:
         """Check if entity should be excluded based on config"""
         import re
@@ -236,6 +252,7 @@ class HADocumentationGenerator:
         
         print("  📡 Fetching entity states...")
         self.states = self.ha.get_states()
+        self._filter_excluded_entities()
         
         print("  📡 Fetching services...")
         self.services = self.ha.get_services()
